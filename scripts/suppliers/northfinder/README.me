@@ -1,9 +1,259 @@
 # Northfinder – download_northfinder_images.py
 
-CLI nástroj na stiahnutie produktových obrázkov z Northfinder eshopu / B2B
-a ich konverziu do PNG (napr. pre Atomer).
+CLI nástroj na stiahnutie produktových obrázkov z Northfinder eshopu / B2B a ich konverziu do PNG (napr. pre Atomer).
 
-## Použitie
+Skript je určený na interné použitie (BikeTrek/xTrek) pri spracovaní fotiek od dodávateľa Northfinder.
+
+---
+
+## Umiestnenie v repozitári
+
+Odporúčaná cesta:
+
+```text
+scripts/
+  suppliers/
+    northfinder/
+      download_northfinder_images.py
+      README.md
+```
+
+---
+
+## Závislosti
+
+- Python 3.10+ (odporúčané)
+- knižnice:
 
 ```bash
-python download_northfinder_images.py "<URL produktu alebo obrázka>" [-V] [-f FILTER] [-o OUTPUT_DIR]
+pip install requests beautifulsoup4 Pillow
+```
+
+(`urllib3` sa nainštaluje s `requests`.)
+
+---
+
+## Dôležitá poznámka (SSL / „insecure“ režim)
+
+Skript je nastavený tak, aby **štandardne neoveroval SSL certifikát** (`verify=False`), kvôli problémom s certifikátmi / firemným proxy:
+
+```python
+TRY_SECURE_FIRST = False
+```
+
+To znamená:
+
+- spojenie je stále cez HTTPS,
+- certifikát servera sa ale *neoveruje* (technicky „insecure“),
+- je to akceptovateľné na interné použitie pri sťahovaní obrázkov od známeho dodávateľa.
+
+Ak chceš najprv skúsiť „secure“ režim, môžeš v skripte prepísať:
+
+```python
+TRY_SECURE_FIRST = True
+```
+
+Vtedy sa skript najprv pokúsi o `verify=True` a na `verify=False` spadne až pri `SSLError`.
+
+---
+
+## Základné použitie
+
+```bash
+python download_northfinder_images.py "<URL>" [-V] [-f FILTER] [-o OUTPUT_DIR]
+```
+
+### Typy URL, ktoré skript podporuje
+
+1. **Priama URL na obrázok (eshop alebo B2B)**  
+   - `https://b2b.northfinder.com/.../nazov-produktu.webp`
+   - `https://northfinder.com/img/p/.../nazov-produktu-large_default.jpg`
+
+   → skript stiahne **jeden** obrázok a uloží ho ako PNG do `images_direct/` (alebo `-o` priečinka).
+
+2. **URL produktu na eshope northfinder.com**  
+   - napr.  
+     `https://northfinder.com/sk/8434-bu-5273sp-panska-komfortna-urban-bunda-premium-outershell-2l-phil.html`  
+     `https://northfinder.com/sk/8744-damska-technicka-trendova-zateplena-lyziarska-bunda-bu-6347snw-tayler.html?search_query=BU-6347SNW&results=1`  
+     `https://northfinder.com/sk/8744-...-tayler.html/232-farba-greenblack`
+
+   → skript načíta HTML produktu a:
+
+   - nájde všetky obrázky z `northfinder.com` a `b2b.northfinder.com`,
+   - prefiltrovaním podľa názvu produktu z URL odhodí nepodstatné obrázky,
+   - **ak sú k dispozícii B2B URL**, použije prednostne tie,
+   - preferuje veľké verzie (`original_default`),
+   - všetko skonvertuje do PNG a uloží do `images_<filter>` (alebo priečinka z `-o`).
+
+---
+
+## Parametre
+
+### URL
+
+```bash
+python download_northfinder_images.py "<URL>"
+```
+
+- buď produktová stránka z eshopu,
+- alebo priama URL na obrázok.
+
+### `-V`, `--all-variants`
+
+```bash
+python download_northfinder_images.py "<URL>" -V
+```
+
+- pokúsi sa nájsť **všetky farebné varianty** daného produktu
+- funguje pre URL, kde varianty existujú ako samostatné URL v tvare:
+
+  ```text
+  ...produkt.html/232-farba-greenblack
+  ...produkt.html/233-farba-black
+  ...
+  ```
+
+- skript načíta HTML, vyhľadá všetky `<a href="...produkt.html/...">` a pre každú takú URL stiahne obrázky.
+
+Každý obrázok dostane názov:
+
+```text
+<variant_tag>_<poradie>_<povodny-nazov-bez-pripony>.png
+napr.  232-farba-greenblack_01_damska-technicka-...-tayler.png
+```
+
+Ak produkt nemá varianty v URL (napr. PHIL), `variant_tag` je prázdny a výsledný názov je:
+
+```text
+01_nazov-produktu.png
+02_nazov-produktu.png
+...
+```
+
+### `-f FILTER`, `--filter FILTER`
+
+```bash
+python download_northfinder_images.py "<URL>" -f "tayler"
+```
+
+- ručne nastavený textový filter, podľa ktorého sa filtrujú URL obrázkov
+- použije sa, ak sa automaticky odvodený filter z URL nehodí alebo chytá príliš veľa obrázkov
+
+Ak `-f` nezadáš, skript sa pokúsi filter odvodiť z URL produktu:
+
+- URL:  
+  `https://northfinder.com/sk/8744-damska-technicka-trendova-zateplena-bunda-bu-6347snw-tayler.html?...`
+- odvodený filter:  
+  `damska-technicka-trendova-zateplena-bunda-bu-6347snw-tayler`
+
+### `-o OUTPUT_DIR`, `--out OUTPUT_DIR`
+
+```bash
+python download_northfinder_images.py "<URL>" -o "northfinder_tayler_images"
+```
+
+- vlastný cieľový priečinok
+- ak nie je zadaný, použije sa:
+
+  - `images_<filter>` – ak existuje textový filter,
+  - `images` – ak filter nie je.
+
+---
+
+## Príklady
+
+### 1. Priama B2B URL (jeden obrázok)
+
+```bash
+python download_northfinder_images.py "https://b2b.northfinder.com/204257-original_default/damska-technicka-trendova-zateplena-lyziarska-bunda-bu-6347snw-tayler.webp"
+```
+
+Výsledok:
+
+- vytvorí sa priečinok `images_direct/`
+- uloží sa `01_damska-technicka-trendova-zateplena-lyziarska-bunda-bu-6347snw-tayler.png`
+
+---
+
+### 2. Tayler – produktová stránka so search_query (aktuálna farba)
+
+```bash
+python download_northfinder_images.py "https://northfinder.com/sk/8744-damska-technicka-trendova-zateplena-lyziarska-bunda-bu-6347snw-tayler.html?search_query=BU-6347SNW&results=1"
+```
+
+Výsledok:
+
+- skript si interne zoberie časť URL bez query (`...tayler.html`)
+- automaticky si spraví filter `damska-technicka-trendova-zateplena-bunda-bu-6347snw-tayler`
+- vytvorí priečinok `images_damska-technicka-trendova-zateplena-bunda-bu-6347snw-tayler/`
+- stiahne obrázky pre aktuálnu farbu, preferuje B2B `original_default`
+- súbory: `01_...png`, `02_...png`, …
+
+---
+
+### 3. Tayler – všetky farebné varianty
+
+```bash
+python download_northfinder_images.py "https://northfinder.com/sk/8744-damska-technicka-trendova-zateplena-bunda-bu-6347snw-tayler.html?search_query=BU-6347SNW&results=1" -V
+```
+
+Výsledok:
+
+- skript načíta HTML a nájde všetky URL variantov:
+  - `...tayler.html/232-farba-greenblack`
+  - `...tayler.html/233-farba-black`
+  - atď.
+- pre každý variant stiahne obrázky a pomenuje ich napr.:
+
+  ```text
+  232-farba-greenblack_01_damska-technicka-...-tayler.png
+  232-farba-greenblack_02_damska-technicka-...-tayler.png
+  233-farba-black_01_damska-technicka-...-tayler.png
+  ...
+  ```
+
+---
+
+### 4. PHIL – produkt bez variantov v URL
+
+```bash
+python download_northfinder_images.py "https://northfinder.com/sk/8434-bu-5273sp-panska-komfortna-urban-bunda-premium-outershell-2l-phil.html"
+```
+
+Výsledok:
+
+- automaticky sa zvolí filter `bu-5273sp-panska-komfortna-urban-bunda-premium-outershell-2l-phil`
+- vytvorí sa priečinok `images_bu-5273sp-panska-komfortna-urban-bunda-premium-outershell-2l-phil/`
+- napr.:
+
+  ```text
+  01_bu-5273sp-panska-komfortna-urban-bunda-premium-outershell-2l-phil.png
+  02_bu-5273sp-panska-komfortna-urban-bunda-premium-outershell-2l-phil.png
+  ```
+
+---
+
+## Poznámky a obmedzenia
+
+- Skript je navrhnutý **konkrétne pre Northfinder** (eshop + B2B), používa regexy a heuristiky podľa ich URL štruktúry.
+- Pre bežný eshop (nie B2B) vie spoľahlivo stiahnuť obrázky **aktuálne vybranej farby**; ďalšie farby sú často načítavané dynamicky JavaScriptom a v čistom HTML vôbec nie sú.
+- Pre produkty, kde sú farebné varianty realizované cez URL (`...produkt.html/xxx-farba-yyy`), vie voľba `-V` obísť všetky tieto URL a stiahnuť obrázky z každého variantu.
+- Používa sa default režim `verify=False` – nepoužívaj to na citlivé veci, je to nástroj na sťahovanie fotiek z konkrétneho, známeho eshopu.
+
+---
+
+## Odporúčaný `.gitignore` pre tento adresár
+
+Do `scripts/suppliers/northfinder/.gitignore`:
+
+```gitignore
+images_*/
+images*/
+images_direct/
+*.png
+*.jpg
+*.jpeg
+*.webp
+```
+
+Takto sa do repozitára nebudú commitovať vygenerované obrázky, ale iba samotný skript a README.
